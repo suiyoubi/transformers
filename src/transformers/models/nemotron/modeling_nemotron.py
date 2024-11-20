@@ -133,9 +133,32 @@ class NemotronLayerNorm1P(nn.LayerNorm):
         with torch.cuda.amp.autocast(enabled=False):
             return F.layer_norm(*args)
 
+class NemotronRMSNorm(nn.Module):
+    def __init__(self, hidden_size, eps=1e-6):
+        """
+        NemotronRMSNorm is equivalent to T5LayerNorm
+        """
+        super().__init__()
+        self.weight = nn.Parameter(torch.ones(hidden_size))
+        self.variance_epsilon = eps
+
+    def forward(self, hidden_states):
+        input_dtype = hidden_states.dtype
+        hidden_states = hidden_states.to(torch.float32)
+        variance = hidden_states.pow(2).mean(-1, keepdim=True)
+        hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
+        return self.weight * hidden_states.to(input_dtype)
+
+    def extra_repr(self):
+        return f"{tuple(self.weight.shape)}, eps={self.variance_epsilon}"
 
 ALL_LAYERNORM_LAYERS.append(NemotronLayerNorm1P)
+ALL_LAYERNORM_LAYERS.append(NemotronRMSNorm)
 
+LAYERNORM_DICT = {
+    'layernorm1p': NemotronLayerNorm1P,
+    'rmsnorm': NemotronRMSNorm,
+}
 
 # Copied from transformers.models.llama.modeling_llama.LlamaRotaryEmbedding with LLAMA->NEMOTRON,Llama->Nemotron,llama->nemotron
 class NemotronRotaryEmbedding(nn.Module):
@@ -578,8 +601,8 @@ class NemotronDecoderLayer(nn.Module):
         self.self_attn = NEMOTRON_ATTENTION_CLASSES[config._attn_implementation](config=config, layer_idx=layer_idx)
 
         self.mlp = NemotronMLP(config)
-        self.input_layernorm = NemotronLayerNorm1P(config.hidden_size, eps=config.norm_eps)
-        self.post_attention_layernorm = NemotronLayerNorm1P(config.hidden_size, eps=config.norm_eps)
+        self.input_layernorm = LAYERNORM_DICT[config.layernorm_type](config.hidden_size, eps=config.norm_eps)
+        self.post_attention_layernorm = LAYERNORM_DICT[config.layernorm_type](config.hidden_size, eps=config.norm_eps)
 
     def forward(
         self,
@@ -791,7 +814,9 @@ class NemotronModel(NemotronPreTrainedModel):
         self.layers = nn.ModuleList(
             [NemotronDecoderLayer(config, layer_idx) for layer_idx in range(config.num_hidden_layers)]
         )
-        self.norm = NemotronLayerNorm1P(config.hidden_size, eps=config.norm_eps)
+
+        assert config.layernorm_type == 'layernorm1p' or config.layernorm_type == 'rmsnorm'
+        self.norm = LAYERNORM_DICT[config.layernorm_type](config.hidden_size, eps=config.norm_eps)
         self.rotary_emb = NemotronRotaryEmbedding(config=config)
         self.gradient_checkpointing = False
 

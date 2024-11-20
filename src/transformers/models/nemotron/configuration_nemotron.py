@@ -83,6 +83,8 @@ class NemotronConfig(PretrainedConfig):
             The dropout ratio for the attention probabilities.
         mlp_bias (`bool`, *optional*, defaults to `False`):
             Whether to use a bias in up_proj and down_proj layers in the MLP layers.
+        layernorm_type (`str`, defaults to `"layernorm1p"`):
+            LayerNorm Implementation. Can be either layernorm1p (nemotron3/4) or rmsnorm (nemotron5).
 
     ```python
     >>> from transformers import NemotronModel, NemotronConfig
@@ -123,6 +125,7 @@ class NemotronConfig(PretrainedConfig):
         attention_bias=False,
         attention_dropout=0.0,
         mlp_bias=False,
+        layernorm_type='layernorm1p',
         **kwargs,
     ):
         self.vocab_size = vocab_size
@@ -143,6 +146,7 @@ class NemotronConfig(PretrainedConfig):
         self.attention_bias = attention_bias
         self.attention_dropout = attention_dropout
         self.mlp_bias = mlp_bias
+        self.layernorm_type = layernorm_type
 
         super().__init__(
             pad_token_id=pad_token_id,
